@@ -20,7 +20,7 @@ from ..core import (
     _safe_rel_path,
 )
 
-_METADATA_RATE_LIMIT_MAX_REQUESTS = 10
+_METADATA_RATE_LIMIT_MAX_REQUESTS = 60
 _METADATA_RATE_LIMIT_WINDOW_SECONDS = 60
 folder_paths = SimpleNamespace(get_input_directory=_get_comfy_input_directory)
 
