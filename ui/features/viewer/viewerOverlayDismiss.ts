@@ -41,7 +41,7 @@ export function installViewerLightDismiss({ overlay, requestClose }: { overlay: 
                 ) {
                     return;
                 }
-                requestClose?.();
+                // requestClose?.();  // [2026-07-15] 移除：点击图片旁空白区关闭浮窗导致误触，用户关闭应仅通过关闭按钮
             } catch (e2: any) {
                 console.debug?.(e2);
             }
