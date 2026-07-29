@@ -177,10 +177,83 @@ async def _build_browse_response(
             "offset": offset,
             "query": query,
             "scope": "output",
+            "mode": "filesystem",
         }
         return json_response(Result.Ok(payload))
     except Exception:
         return None
+
+
+async def _get_show_folders(svc: Any) -> bool:
+    """Return the ``browser_show_folders`` setting.
+
+    Defaults to ``True`` if the settings service is unavailable or raises.
+    """
+    try:
+        _ss = svc.get("settings") if isinstance(svc, dict) else None
+        if _ss is not None:
+            return await _ss.get_browser_show_folders()
+    except Exception:
+        pass
+    return True
+
+
+async def _maybe_initial_fallback_output(
+    *,
+    output_root: Any,
+    subfolder: str,
+    query: str,
+    limit: int,
+    offset: int,
+    filters: dict[str, Any] | None,
+    out_res: Any,
+    sort_key: str,
+    list_filesystem_assets: Callable[..., Any],
+    list_filesystem_folders: Callable[..., Any],
+    index_service: Any,
+    exclude_assets_under_root: Callable[..., Any],
+    dedupe_result_assets_payload: Callable[..., Any],
+    input_root: str,
+    show_folders: bool,
+    kickoff_background_scan: Callable[..., Any],
+    output_root_str: str,
+    json_response: Callable[[Any], web.Response],
+) -> web.Response | None:
+    """Return a filesystem fallback response when the index is empty.
+
+    Kicks off an async background scan and returns existing filesystem assets
+    immediately so the user sees something.  Returns ``None`` when the
+    conditions aren't met, letting the caller continue with the index path.
+    """
+    try:
+        is_initial = query == "*" and offset == 0 and not has_meaningful_filters(filters)
+        out_data = out_res.data or {}
+        total, total_known = _extract_total(out_data.get("total"))
+        if not (is_initial and out_res.ok and total_known and total == 0 and not out_data.get("assets")):
+            return None
+    except Exception:
+        return None
+    await kickoff_background_scan(
+        output_root_str,
+        source="output", recursive=False,
+        incremental=True, fast=True, background_metadata=True,
+    )
+    fs_res = await list_filesystem_assets(
+        Path(output_root), subfolder, query, limit, offset,
+        asset_type="output", filters=filters or None,
+        index_service=index_service, sort=sort_key,
+    )
+    fs_res = _prepare_filesystem_response(
+        fs_res, exclude_assets_under_root, dedupe_result_assets_payload, input_root,
+    )
+    if fs_res.ok and isinstance(fs_res.data, dict):
+        fs_res.data = await _attach_filesystem_folders(
+            fs_res.data, output_root=output_root, subfolder=subfolder,
+            offset=offset,
+            list_filesystem_folders=list_filesystem_folders,
+            show_folders=show_folders,
+        )
+    return json_response(fs_res)
 
 
 async def handle_output_scope(
@@ -209,27 +282,13 @@ async def handle_output_scope(
         return json_response(error_result)
     touch_enrichment_pause(svc, seconds=1.5)
 
-    _show_folders = True
-    try:
-        _settings_svc = svc.get("settings") if isinstance(svc, dict) else None
-        if _settings_svc is not None:
-            _show_folders = await _settings_svc.get_browser_show_folders()
-    except Exception:
-        pass
+    show_folders = await _get_show_folders(svc)
 
     output_root = await runtime_output_root(svc)
     input_root = str(Path(get_input_directory()).resolve(strict=False))
 
     # ── Browse mode: show current-level folders + files (non-recursive) ────
-    # When the folder setting is on and the user is browsing normally (no
-    # search query, no meaningful filters), use the filesystem listing so
-    # each directory level shows only its own content — like a file explorer.
-    # This applies to both root and subfolder levels.
-    is_browse_mode = (
-        _show_folders
-        and query == "*"
-        and not has_meaningful_filters(filters)
-    )
+    is_browse_mode = show_folders and query == "*" and not has_meaningful_filters(filters)
     if is_browse_mode:
         browse_resp = await _build_browse_response(
             output_root=output_root,
@@ -247,15 +306,11 @@ async def handle_output_scope(
         if browse_resp is not None:
             return browse_resp
 
-    output_filters = {
-        **(filters or {}),
-        "source": "output",
-        "exclude_root": input_root,
-    }
+    output_filters = {**(filters or {}), "source": "output", "exclude_root": input_root}
     if subfolder:
         output_filters["subfolder"] = subfolder
 
-    search_kwargs = {
+    search_kwargs: dict[str, Any] = {
         "roots": [output_root],
         "limit": limit,
         "offset": offset,
@@ -266,48 +321,26 @@ async def handle_output_scope(
     if cursor:
         search_kwargs["cursor"] = cursor
     out_res = await svc["index"].search_scoped(query, **search_kwargs)
-    try:
-        is_initial = query == "*" and offset == 0 and not has_meaningful_filters(filters)
-        out_data = out_res.data or {}
-        assets = out_data.get("assets") or []
-        raw_total = out_data.get("total")
-        total, total_known = _extract_total(raw_total)
 
-        if is_initial and out_res.ok and total_known and total == 0 and not assets:
-            await kickoff_background_scan(
-                str(Path(output_root)),
-                source="output",
-                recursive=False,
-                incremental=True,
-                fast=True,
-                background_metadata=True,
-            )
-            fs_res = await list_filesystem_assets(
-                Path(output_root),
-                subfolder,
-                query,
-                limit,
-                offset,
-                asset_type="output",
-                filters=filters or None,
-                index_service=svc.get("index"),
-                sort=sort_key,
-            )
-            fs_res = _prepare_filesystem_response(
-                fs_res, exclude_assets_under_root, dedupe_result_assets_payload, input_root
-            )
-            if fs_res.ok and isinstance(fs_res.data, dict):
-                fs_res.data = await _attach_filesystem_folders(
-                    fs_res.data,
-                    output_root=output_root,
-                    subfolder=subfolder,
-                    offset=offset,
-                    list_filesystem_folders=list_filesystem_folders,
-                    show_folders=_show_folders,
-                )
-            return json_response(fs_res)
-    except Exception:
-        pass
+    # ── Initial-fallback: index empty → kick off scan, return filesystem ──
+    fallback_resp = await _maybe_initial_fallback_output(
+        output_root=output_root, subfolder=subfolder,
+        query=query, limit=limit, offset=offset,
+        filters=filters, out_res=out_res,
+        list_filesystem_assets=list_filesystem_assets,
+        list_filesystem_folders=list_filesystem_folders,
+        index_service=svc.get("index"),
+        exclude_assets_under_root=exclude_assets_under_root,
+        dedupe_result_assets_payload=dedupe_result_assets_payload,
+        input_root=input_root,
+        show_folders=show_folders,
+        sort_key=sort_key,
+        kickoff_background_scan=kickoff_background_scan,
+        output_root_str=str(Path(output_root)),
+        json_response=json_response,
+    )
+    if fallback_resp is not None:
+        return fallback_resp
 
     if not out_res.ok:
         return json_response(out_res)
@@ -315,11 +348,9 @@ async def handle_output_scope(
         out_res, exclude_assets_under_root, dedupe_result_assets_payload, input_root, sort_key
     )
     payload = await _attach_filesystem_folders(
-        payload,
-        output_root=output_root,
-        subfolder=subfolder,
+        payload, output_root=output_root, subfolder=subfolder,
         offset=offset,
         list_filesystem_folders=list_filesystem_folders,
-        show_folders=_show_folders,
+        show_folders=show_folders,
     )
     return json_response(Result.Ok(payload))
