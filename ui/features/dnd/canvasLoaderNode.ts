@@ -141,6 +141,49 @@ export const createCanvasLoaderNodes = ({  app, items = [], event = null, gap = 
 
 export const writeMediaPathWidgetValue = _setWidgetValue;
 
+/**
+ * P3: Resolve the real interior widget behind a subgraph promoted (store-projected) widget.
+ *
+ * ComfyUI 1.48+ subgraph promoted widgets are store projections — writing them only
+ * updates the store but does NOT propagate to the inner LoadImage/Video node's widget
+ * (which holds the callback that clears imgs, reloads, and refreshes the preview).
+ *
+ * Chain: node.inputs[i]._widget === projectedWidget
+ *       → node.inputs[i]._subgraphSlot.linkIds[0]
+ *       → node.subgraph.getLink(linkId).resolve().inputNode
+ *       → inputNode.getWidgetFromSlot({ link: linkId })  ← the real widget
+ *
+ * @returns {object|null} The interior widget, or null if resolution fails at any step.
+ */
+export const resolveSubgraphInnerWidget = (node: any, projectedWidget: any): any | null => {
+    if (!node || !projectedWidget) return null;
+    if (typeof node.isSubgraphNode !== "function" || !node.isSubgraphNode()) return null;
+
+    const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+    const matchInput = inputs.find((input: any) => input?._widget === projectedWidget);
+    if (!matchInput) return null;
+
+    const slot = matchInput._subgraphSlot;
+    if (!slot || !Array.isArray(slot.linkIds) || slot.linkIds.length === 0) return null;
+
+    const linkId = slot.linkIds[0];
+    const link = node.subgraph?.getLink?.(linkId);
+    if (!link) return null;
+
+    let inputNode: any = null;
+    try {
+        const resolved = typeof link.resolve === "function" ? link.resolve() : link;
+        inputNode = resolved?.inputNode || resolved;
+    } catch (e: any) {
+        console.debug?.(e);
+        return null;
+    }
+    if (!inputNode) return null;
+
+    const widget = inputNode.getWidgetFromSlot?.({ link: linkId });
+    return widget || null;
+};
+
 export const createLoaderAndConnect = ({
     app,
     payload,

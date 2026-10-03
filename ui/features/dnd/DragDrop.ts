@@ -34,6 +34,7 @@ import {
     createCanvasLoaderNodes,
     writeMediaPathWidgetValue,
     createLoaderAndConnect,
+    resolveSubgraphInnerWidget,
 } from "./canvasLoaderNode.js";
 
 const _resolveApp = () => {
@@ -1041,6 +1042,19 @@ export function createDragDropRuntimeHandlers(): Record<string, any> {
         if (!relativePath) return;
 
         writeMediaPathWidgetValue(widget, relativePath);
+
+        // P3: 子图 promoted widget 双写 — 刷新内部真实节点的 UI 和预览
+        // ComfyUI 1.48+ promoted widgets are store projections; writing them
+        // only updates the store but does NOT fire the inner LoadImage callback
+        // that clears imgs, reloads, and refreshes the preview.
+        try {
+            const innerWidget = resolveSubgraphInnerWidget(node, widget);
+            if (innerWidget && innerWidget !== widget) {
+                writeMediaPathWidgetValue(innerWidget, relativePath);
+            }
+        } catch (e: any) {
+            console.debug?.(e);
+        }
 
         markCanvasDirty(app);
         dndLog("drop inject", { node: node?.title, widget: widget?.name, value: relativePath });
