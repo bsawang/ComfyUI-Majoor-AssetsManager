@@ -1,6 +1,6 @@
 import { A as e, E as t, J as n, R as r, S as i, Y as a, b as o, j as s, m as c } from "./events-DJJgScE9.js";
 import { a as l, n as u } from "./graphTraversal-Sruu0ipL.js";
-import { Y as d, b as f, v as p, x as ee, y as te } from "./SidebarWorkflowSection-bc3diak4.js";
+import { Y as d, b as f, v as p, x as ee, y as te } from "./SidebarWorkflowSection-9kvH4NBf.js";
 //#region ui/features/viewer/floatingViewerProgress.ts
 var m = "progress-update", h = "__MJR_MFV_PROGRESS_SERVICE__";
 function ne() {

@@ -148,10 +148,14 @@ export const writeMediaPathWidgetValue = _setWidgetValue;
  * updates the store but does NOT propagate to the inner LoadImage/Video node's widget
  * (which holds the callback that clears imgs, reloads, and refreshes the preview).
  *
- * Chain: node.inputs[i]._widget === projectedWidget
- *       → node.inputs[i]._subgraphSlot.linkIds[0]
- *       → node.subgraph.getLink(linkId).resolve().inputNode
- *       → inputNode.getWidgetFromSlot({ link: linkId })  ← the real widget
+ * Chain (ComfyUI 0.37, verified via CDP):
+ *   node.inputs[i]._widget === projectedWidget
+ *   → node.inputs[i]._subgraphSlot.linkIds[0]
+ *   → node.subgraph.getLink(linkId)
+ *   → link.target_id          ← origin_id = -10 (external IO node, NOT in subgraph)
+ *   → node.subgraph.getNodeById(link.target_id)   ← direct, no resolve() needed
+ *   → innerNode.inputs[link.target_slot]._widget   ← CAN BE null in 0.37!
+ *   → fallback: innerNode.widgets.find(w => w.type === projectedWidget.type)
  *
  * @returns {object|null} The interior widget, or null if resolution fails at any step.
  */
@@ -170,18 +174,24 @@ export const resolveSubgraphInnerWidget = (node: any, projectedWidget: any): any
     const link = node.subgraph?.getLink?.(linkId);
     if (!link) return null;
 
-    let inputNode: any = null;
-    try {
-        const resolved = typeof link.resolve === "function" ? link.resolve() : link;
-        inputNode = resolved?.inputNode || resolved;
-    } catch (e: any) {
-        console.debug?.(e);
-        return null;
-    }
-    if (!inputNode) return null;
+    // ComfyUI 0.37: link.origin_id is the external IO node (-10), NOT in subgraph.
+    // link.target_id IS the real internal node.  link.resolve() tries to find origin_id
+    // and fails with "Cannot read properties of undefined (reading 'getNodeById')".
+    const targetId = link.target_id;
+    if (targetId == null) return null;
 
-    const widget = inputNode.getWidgetFromSlot?.({ link: linkId });
-    return widget || null;
+    const innerNode = node.subgraph?.getNodeById?.(targetId);
+    if (!innerNode) return null;
+
+    // Try the direct slot widget first.  In some 0.37 builds, inner input._widget
+    // is null because promoted widgets own the slot binding.  Fall back to the
+    // widgets array matching by type (combo, button, text, number …).
+    const targetSlot = link.target_slot;
+    const slotWidget = innerNode.inputs?.[targetSlot]?._widget;
+    if (slotWidget) return slotWidget;
+
+    const projectedType = projectedWidget.type;
+    return innerNode.widgets?.find?.((w: any) => w?.type === projectedType) || null;
 };
 
 export const createLoaderAndConnect = ({

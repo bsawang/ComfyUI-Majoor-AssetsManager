@@ -21,24 +21,37 @@ describe("resolveSubgraphInnerWidget", () => {
             setValue: () => {},
         };
         const interiorNode = {
+            id: "810",
             type: "LoadImage",
-            inputs: [{ name: "image", type: "IMAGE", link: 42 }],
-            getWidgetFromSlot: (slot: any) => (slot.link === 42 ? interiorWidget : undefined),
+            inputs: [
+                { name: "image", type: "IMAGE" },        // target_slot = 0, _widget is null in 0.37
+                { name: "upload", type: "IMAGEUPLOAD" },
+            ],
+            widgets: [interiorWidget, { name: "upload", type: "button", value: "image" }],
         };
 
         const projectedWidget = {
             name: "image",
+            type: "combo",
             widgetId: "g:5:image",
             value: "old.png",
         };
 
-        // The subgraph link chain: host input._subgraphSlot.linkIds → link 42 →
-        // interior LoadImage input with link === 42.
+        // ComfyUI 0.37 real link structure (verified via CDP):
+        //   origin_id = -10 (external IO node, NOT in subgraph)
+        //   target_id = "810" (the real interior LoadImage node)
+        //   resolve() tries origin_id → fails → MUST use target_id directly
         const link = {
-            resolve: () => ({ inputNode: interiorNode }),
+            id: 42,
+            origin_id: "-10",
+            origin_slot: 3,
+            target_id: "810",
+            target_slot: 0,
+            resolve: () => { throw new Error("Cannot read properties of undefined (reading 'getNodeById')"); },
         };
         const subgraph = {
             getLink: (id: number) => (id === 42 ? link : null),
+            getNodeById: (id: string) => (id === "810" ? interiorNode : null),
         };
 
         const subgraphNode = {
