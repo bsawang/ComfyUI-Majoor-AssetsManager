@@ -54,6 +54,15 @@ export default defineConfig({
         "process.env.NODE_ENV": NODE_ENV_LITERAL,
     },
 
+    // P4: stub out @primeui/license-manager to suppress the PrimeVue 5
+    // license warning + banner. majoor uses community components only, the
+    // check is pure noise and the cryptographic signature only gates pro.
+    resolve: {
+        alias: {
+            "@primeui/license-manager": resolve(__dirname, "ui/vendor/licenseManagerStub.mjs"),
+        },
+    },
+
     build: {
         lib: {
             entry: resolve(__dirname, "ui/entry.ts"),
