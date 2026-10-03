@@ -183,12 +183,15 @@ export const resolveSubgraphInnerWidget = (node: any, projectedWidget: any): any
     const innerNode = node.subgraph?.getNodeById?.(targetId);
     if (!innerNode) return null;
 
-    // Try the direct slot widget first.  In some 0.37 builds, inner input._widget
-    // is null because promoted widgets own the slot binding.  Fall back to the
-    // widgets array matching by type (combo, button, text, number …).
+    // Try the direct slot widget first — but ONLY if it has a real callback.
+    // In ComfyUI 0.37 promoted widgets sometimes leave inner input._widget as:
+    //   a) null          → promoted widget owns the binding entirely
+    //   b) a dead widget → has value/name/type but callback is undefined
+    // Both cases must fall through to the widgets[] array to find the one
+    // with the actual LoadImage callback that clears imgs + refreshes preview.
     const targetSlot = link.target_slot;
     const slotWidget = innerNode.inputs?.[targetSlot]?._widget;
-    if (slotWidget) return slotWidget;
+    if (slotWidget && typeof slotWidget.callback === "function") return slotWidget;
 
     const projectedType = projectedWidget.type;
     return innerNode.widgets?.find?.((w: any) => w?.type === projectedType) || null;
