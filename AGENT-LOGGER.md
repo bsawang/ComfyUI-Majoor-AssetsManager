@@ -45,3 +45,41 @@
 **背景**：P7（`runtime_activity.py` 的 post-execution ingestion 日志）已完成定位使命，majoor 运行正常。
 **改动**：回滚 `runtime_activity.py`——移除 `get_logger` import 和 scheduled/done/failed 日志，还原为裸调用 `ingest_prompt_outputs_from_services`。行为无变化（纯日志增删）。
 **说明**：黄点根因已定（SigLIP 下载失败 → `vector.degraded`），解决是 `MAJOOR_ENABLE_VECTOR_SEARCH=0` 重启，不再需要诊断日志。
+
+## 2026-10-04：全 patch 恢复 + ComfyUI 0.37 升级兼容
+
+### 9-23 丢失事件
+上游 merge `6b3e2b36`（Merge branch 'main' of MajoorWaldi）冲掉了 P1/P2/P5/P6 工作区改动。根因：这 4 个 patch 从 8 月落地以来**从未 commit**。P3/P4 幸存（8-11 就 commit 了）但 P4 缺 vite.config.mjs 的 `resolve.alias`（stub 文件在但没 wire）。
+
+### P3 重写（LiteGraph 0.37 兼容）
+CDP 诊断 ComfyUI 0.37 真实子图节点结构：
+- `link.origin_id = -10`（外部 IO 节点，不在 subgraph 内）
+- `link.target_id = "810"`（内部真实 LoadImage）
+- 旧 `link.resolve()` 找 origin → `getNodeById(-10)` 不存在 → **throw**
+- 新链：`node.subgraph.getLink(id).target_id` → `subgraph.getNodeById(target_id)`
+- 额外：`innerNode.inputs[slot]._widget` 在 0.37 为 null（promoted widgets 独占 binding）→ fallback 到 `innerNode.widgets.find(w => w.type === projected.type)`
+
+### 全量恢复 P1/P2/P5/P6
+- P1 `scan_staging.py`：2 处改动（空串→None + reference-in-place 零复制）
+- P2 `log.py`：EMOJI_MAP → ASCII 级别标签
+- P5 `vector_service.py`：`_load_siglip_components` 包 `asyncio.to_thread`
+- P6 `searcher.py`：SQL 加 f 前缀 + `{IN_CLAUSE}` → `{{IN_CLAUSE}}`
+
+### 最终 commit 链
+| Commit | 内容 |
+|---|---|
+| `199d9ff1` | P3 初始双写（8-11） |
+| `e3b7e706` | P4 补 vite resolve.alias（10-04） |
+| `51c5dbe6` | P3 LiteGraph 0.37 重写（10-04） |
+| `3e76c9bb` | P1/P2/P5/P6 恢复 + commit + push（10-04） |
+
+### 验证
+- 后端 Python：1746 passed / 0 failed / 1 skipped（symlink 权限）
+- 前端 vitest：810 passed / 0 failed
+- P3 CDP 实机验证：callbackFired=true
+
+### 教训
+- **没有 commit 的"本地生效"= 不存在**。上游 merge / reset / reinstall 都能冲掉。
+- **dist/ 和 ui/vendor/ 在 .gitignore 里**，vite build 后必须手动 git add。
+- LiteGraph 的 API 从 0.33 升到 0.37 改了 `link.resolve()` 语义——不再返回 inputNode，而是返回 origin 方向。子图节点内部查找应该用 `target_id`。
+
