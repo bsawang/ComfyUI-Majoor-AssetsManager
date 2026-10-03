@@ -178,7 +178,10 @@ def register_staging_routes(routes: web.RouteTableDef, *, deps: dict | None = No
                 return None
             text = value.strip()
             if text == "":
-                return Path(".")
+                # P1: explicit empty string = unspecified → let caller fall back
+                # to default mjr_staged subfolder (same as None, NOT Path(".")
+                # which would pollute input root).
+                return None
             if "\x00" in text:
                 return None
             p = Path(text)
@@ -281,6 +284,46 @@ def register_staging_routes(routes: web.RouteTableDef, *, deps: dict | None = No
                 if not _is_path_allowed_(normalized):
                     errors.append({"file": raw_filename, "error": "Source file not allowed"})
                     continue
+
+            # P1: reference-in-place — zero-copy when source is already inside
+            # input or output root.  Majoor's drag-drop often re-ingests files
+            # that were produced in previous runs; copying them again just
+            # duplicates data.  Instead, return the original path directly.
+            try:
+                normalized_path = Path(str(normalized))
+                in_input_root = _is_within_root(normalized_path, input_root)
+                in_output_root = _is_within_root(normalized_path, output_root)
+                if in_input_root or in_output_root:
+                    ref_subfolder = ""
+                    ref_name = normalized_path.name
+                    if in_input_root:
+                        try:
+                            ref_subfolder = str(normalized_path.parent.relative_to(input_root)).replace("\\", "/")
+                            if ref_subfolder == ".":
+                                ref_subfolder = ""
+                        except Exception:
+                            ref_subfolder = ""
+                    else:
+                        try:
+                            ref_subfolder = str(normalized_path.parent.relative_to(output_root)).replace("\\", "/")
+                            if ref_subfolder == ".":
+                                ref_subfolder = ""
+                        except Exception:
+                            ref_subfolder = ""
+                        # Mark output-origin files with [output] suffix so
+                        # downstream consumers can distinguish the source.
+                        if not ref_name.endswith("[output]"):
+                            ref_name = f"{ref_name} [output]"
+
+                    staged.append({
+                        "name": ref_name,
+                        "subfolder": ref_subfolder,
+                        "path": str(normalized_path),
+                    })
+                    continue
+            except Exception:
+                # Fall through to normal staging on any path-resolution error.
+                pass
 
             # Destination:
             # - default: keep current behavior under input/mjr_staged/<source_subfolder?>

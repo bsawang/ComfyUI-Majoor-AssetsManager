@@ -1086,7 +1086,9 @@ class VectorService:
                 from transformers import AutoModel, AutoProcessor
                 from transformers.utils import logging as hf_logging
                 verbose = _ai_verbose_logs_enabled()
-                _load_siglip_components(self, hf_logging, AutoModel, AutoProcessor, verbose)
+                await asyncio.to_thread(
+                    _load_siglip_components, self, hf_logging, AutoModel, AutoProcessor, verbose
+                )
             return self._siglip_processor, self._siglip_model
 
     @staticmethod

@@ -9,16 +9,16 @@ from typing import Any, Final
 
 # Emoji indicators for log levels
 EMOJI_MAP: Final[dict[str, str]] = {
-    "DEBUG": "🔍",      # Magnifying glass for debug
-    "INFO": "ℹ️",       # Info symbol
-    "WARNING": "⚠️",    # Warning sign
-    "?": "❌",      # Error cross
-    "CRITICAL": "🔥",   # Fire for critical
-    "SUCCESS": "✅",    # Success checkmark
+    "DEBUG": "DBG",     # Debug
+    "INFO": "INF",      # Info
+    "WARNING": "WRN",   # Warning
+    "ERROR": "ERR",     # Error
+    "CRITICAL": "CRT",  # Critical
+    "SUCCESS": "OK",    # Success
 }
 
 # Global logger prefix
-PREFIX: Final[str] = "📂 Majoor"
+PREFIX: Final[str] = "[Majoor]"
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 _configured_loggers: set[str] = set()
@@ -41,16 +41,16 @@ class EmojiFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format a log record as a single line with a prefix and emoji."""
-        # Get emoji for log level
-        emoji = EMOJI_MAP.get(record.levelname, "📂")
+        # Get level tag for log level
+        tag = EMOJI_MAP.get(record.levelname, "LOG")
 
-        # Format: 📂 Majoor [📂✅] module: message
+        # Format: [Majoor] [INF] module: message
         try:
             rid = str(getattr(record, "request_id", "") or "").strip()
         except Exception:
             rid = ""
         rid_part = f" [{rid}]" if rid else ""
-        log_format = f"{PREFIX} [{emoji}] %(name)s{rid_part}: %(message)s"
+        log_format = f"{PREFIX} [{tag}] %(name)s{rid_part}: %(message)s"
         formatter = logging.Formatter(log_format)
         return formatter.format(record)
 
