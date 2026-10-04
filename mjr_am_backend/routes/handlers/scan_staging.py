@@ -239,8 +239,12 @@ def register_staging_routes(routes: web.RouteTableDef, *, deps: dict | None = No
             subfolder = item.get("subfolder") or ""
             file_type = (item.get("type") or "output").lower()
             root_id = item.get("root_id") or item.get("custom_root_id")
-            dest_subfolder = _safe_rel_subfolder(item.get("dest_subfolder", None))
-            if "dest_subfolder" in item and dest_subfolder is None:
+            raw_dest = item.get("dest_subfolder", None)
+            dest_subfolder = _safe_rel_subfolder(raw_dest)
+            # Only reject when caller explicitly provided a NON-empty value that
+            # failed sanitization.  An empty string ("") means "unspecified"
+            # (same as omitting the key) — _safe_rel_subfolder maps both to None.
+            if raw_dest is not None and str(raw_dest).strip() != "" and dest_subfolder is None:
                 errors.append({"file": raw_filename, "error": "Invalid dest_subfolder"})
                 continue
 
@@ -352,7 +356,7 @@ def register_staging_routes(routes: web.RouteTableDef, *, deps: dict | None = No
 
                 staged.append({
                     "name": dest_path.name,
-                    "subfolder": "" if dest_dir == input_root else str(dest_dir.relative_to(input_root)),
+                    "subfolder": "" if dest_dir == input_root else str(dest_dir.relative_to(input_root)).replace("\\", "/"),
                     "path": str(dest_path)
                 })
                 continue
@@ -364,7 +368,7 @@ def register_staging_routes(routes: web.RouteTableDef, *, deps: dict | None = No
                     "src": str(normalized),
                     "dst": str(dest_path),
                     "name": dest_path.name,
-                    "subfolder": "" if dest_dir == input_root else str(dest_dir.relative_to(input_root)),
+                    "subfolder": "" if dest_dir == input_root else str(dest_dir.relative_to(input_root)).replace("\\", "/"),
                 })
             except Exception:
                 errors.append({"file": raw_filename, "error": "Failed to stage file (internal error)"})

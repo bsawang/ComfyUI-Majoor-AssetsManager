@@ -38,7 +38,9 @@ export const stageToInputDetailed = async ({
 
     const staged = Array.isArray(result.data?.staged) ? result.data.staged[0] : null;
     if (!staged) return null;
-    const relativePath = staged?.subfolder ? `${staged.subfolder}/${staged.name}` : staged?.name;
+    const relativePath = staged?.subfolder
+        ? `${staged.subfolder.replace(/\\/g, "/")}/${staged.name}`
+        : staged?.name;
     return {
         relativePath: relativePath || null,
         absPath: staged?.path || null,

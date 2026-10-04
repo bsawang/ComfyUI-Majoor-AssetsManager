@@ -78,7 +78,8 @@ export function mountGlobalRuntime(): boolean {
         const mounted = !!mountKeepAlive(root, GlobalRuntimeApp, GLOBAL_RUNTIME_MOUNT_KEY);
         mountTopBarMfvButton();
         return mounted;
-    } catch {
+    } catch (err) {
+        console.error("[Majoor] mountGlobalRuntime FAILED:", err);
         return false;
     }
 }

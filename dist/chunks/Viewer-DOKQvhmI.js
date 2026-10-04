@@ -9745,7 +9745,7 @@ function Xr() {
 		Kr = e;
 	}), qr || import("./scopes-X1iFrTle.js").then((e) => {
 		qr = e;
-	}), Jr || import("./genInfo-BQzBK9iC.js").then((e) => e.n).then((e) => {
+	}), Jr || import("./genInfo-CVO6eAcP.js").then((e) => e.n).then((e) => {
 		Jr = e;
 	}), Yr || import("./frameExport-tksSZ7sb.js").then((e) => {
 		Yr = e;
